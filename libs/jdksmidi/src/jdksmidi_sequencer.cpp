@@ -28,7 +28,7 @@
 
 #include "jdksmidi/world.h"
 #include "jdksmidi/sequencer.h"
-#include <iostream.h>
+#include <iostream>
 
 namespace jdksmidi
 {
