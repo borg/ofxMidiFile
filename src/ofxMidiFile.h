@@ -32,7 +32,17 @@ TODO:
     
         // after note(s) on before note(s) off: add words to music in the present situation
     tracks.GetTrack( trk )->PutTextEvent(t, META_LYRIC_TEXT, "Left");
+
+
+MidiFiles exported from Ableton don't seem to contain BPM info from when exported.
+Each bar in 4/4 is 384 clicks 
+//384 ableton default
+//480 logic default
+
 */
+
+
+
 //
 
 #ifndef __JALC_AudioAnalyser__ofxMidiFile__
@@ -65,14 +75,14 @@ public:
         trackId = "";//use to separate tracks
     }
     
-    int beat;
-    float time;
-    float tempo;
-    int note;
-    int velocity;
-    int channel;
-    string trackId;
-    string type;//specify NOTE_ON, NOTE_OFF etc
+    int beat=1;
+    float time=0;
+    float tempo=0;
+    int note=0;
+    int velocity=100;
+    int channel=1;
+    string trackId="";
+    string type="";//specify NOTE_ON, NOTE_OFF etc
     
     static ofEvent<MidiFileEvent>	NOTE_ON;
     static ofEvent<MidiFileEvent>	NOTE_OFF;
@@ -126,7 +136,7 @@ class ofxMidiFilePlayer:public ofThread{
         
         lastTimedBigMessage = new MIDITimedBigMessage();
         //lastTimedBigMessage = 0;
-        tracks = 0;
+        tracks = new MIDIMultiTrack();
         sequencer = 0;
         
         trackLoader = 0;
@@ -191,7 +201,7 @@ class ofxMidiFilePlayer:public ofThread{
         }
         
         clear();
-        
+        tracks = new MIDIMultiTrack();
         
         midiFileName = file;
         string filePath = ofToDataPath(midiFileName, true);
@@ -200,10 +210,38 @@ class ofxMidiFilePlayer:public ofThread{
             return;
         }
         
+  
         setState(MIDI_PLAYER_STATE_LOADING);
         startThread();
         
     }
+    
+    
+    void clear(){
+        if(tracks){
+            delete tracks;
+            tracks = 0;
+        }
+        
+        if(sequencer){
+            delete sequencer;
+            sequencer = 0;
+        }
+        
+        if(trackLoader){
+            delete trackLoader;
+            trackLoader = 0;
+        }
+        if(trackReader){
+            delete trackReader;
+            trackReader = 0;
+        }
+
+
+    }
+    
+    
+    
     
     void stop(){
         setState(MIDI_PLAYER_STATE_STOPPED);
@@ -261,7 +299,7 @@ class ofxMidiFilePlayer:public ofThread{
             if(doNotify){
                 ofNotifyEvent(MidiFileEvent::BEAT, e);
             }
-            ofLog(OF_LOG_VERBOSE, "%8ld : %s <------------------>", msg->GetTime(), msg->MsgToText ( msgbuf ) );
+            //ofLog(OF_LOG_VERBOSE, "%8ld : %s <------------------>", msg->GetTime(), msg->MsgToText ( msgbuf ) );
         }else if(msg->IsNoteOn()){
             e.type = "NOTE_ON";
             e.note = msg->GetNote();
@@ -270,7 +308,7 @@ class ofxMidiFilePlayer:public ofThread{
             if(doNotify){
                 ofNotifyEvent(MidiFileEvent::NOTE_ON, e);
             }
-            ofLog(OF_LOG_VERBOSE, "%8ld : %s", msg->GetTime(), msg->MsgToText ( msgbuf ) );
+            ofLog(OF_LOG_VERBOSE, "%f : %s", msg->GetTime()/(float)tracks->GetClksPerBeat(), msg->MsgToText ( msgbuf ) );
         }else if(msg->IsNoteOff()){
             e.type = "NOTE_OFF";
             e.note = msg->GetNote();
@@ -280,7 +318,7 @@ class ofxMidiFilePlayer:public ofThread{
                 ofNotifyEvent(MidiFileEvent::NOTE_OFF, e);
             }
             
-            ofLog(OF_LOG_VERBOSE, "%8ld : %s", msg->GetTime(), msg->MsgToText ( msgbuf ) );
+            ofLog(OF_LOG_VERBOSE, "%f : %s", msg->GetTime()/(float)tracks->GetClksPerBeat(), msg->MsgToText ( msgbuf ) );
         }else if(msg->IsAllNotesOff()){
             e.type = "NOTES_ALL_OFF";
             e.channel = msg->GetChannel();
@@ -288,7 +326,7 @@ class ofxMidiFilePlayer:public ofThread{
                 ofNotifyEvent(MidiFileEvent::NOTES_ALL_OFF, e);
             }
             
-            ofLog(OF_LOG_VERBOSE, "%8ld : %s", msg->GetTime(), msg->MsgToText ( msgbuf ) );
+            ofLog(OF_LOG_VERBOSE, "%f : %s", msg->GetTime()/(float)tracks->GetClksPerBeat(), msg->MsgToText ( msgbuf ) );
         }
         
         if ( msg->IsSystemExclusive() ){
@@ -330,7 +368,7 @@ class ofxMidiFilePlayer:public ofThread{
         
         if(_state == MIDI_PLAYER_STATE_LOADING){
             
-            tracks = new MIDIMultiTrack();
+           
             
             string filePath = ofToDataPath(midiFileName, true);
             
@@ -361,14 +399,15 @@ class ofxMidiFilePlayer:public ofThread{
             sequencer = new MIDISequencer(tracks);
             
             musicDurationInSeconds = sequencer->GetMusicDurationInSeconds();//GetCurrentTimeInMs
-            cout<<midiFileName<< " musicDurationInSeconds is "<<musicDurationInSeconds<<endl;
+            cout<<midiFileName<< " musicDurationInSeconds is "<<musicDurationInSeconds<<" trackReader->GetDivision() "<<trackReader->GetDivision()<<endl;
             
             int midiFormat = trackReader->GetFormat();
             cout<<midiFileName <<  " midiFormat: " << midiFormat << endl;
             
-           
             
-            loadedOk = 1;
+                                    loadedOk = 1;
+            //parse to events
+            parseToEvents();
             lastCheckedTime = 0;
             nextEventTime = 0;
             currentTime = 0;
@@ -441,6 +480,42 @@ class ofxMidiFilePlayer:public ofThread{
     }
 
 
+    void parseToEvents(){
+        if(loadedOk){
+            int num_tracks = tracks->GetNumTracksWithEvents();
+
+            for ( int nt = 0; nt < num_tracks; ++nt ){
+                MIDITrack &trk = *tracks->GetTrack( nt );
+                int num_events = trk.GetNumEvents();
+                
+                vector<MidiFileEvent> eList;
+                events.push_back(eList);
+                
+                for ( int ne = 0; ne < num_events; ++ne ){
+                    MIDITimedBigMessage *msg = trk.GetEvent( ne );
+                    if (msg->GetLength() > 0){
+                        vector<unsigned char> message;
+                        message.push_back(msg->GetStatus());
+                        if (msg->GetLength()>0) message.push_back(msg->GetByte1());
+                        if (msg->GetLength()>1) message.push_back(msg->GetByte2());
+                        if (msg->GetLength()>2) message.push_back(msg->GetByte3());
+                        if (msg->GetLength()>3) message.push_back(msg->GetByte4());
+                        if (msg->GetLength()>4) message.push_back(msg->GetByte5());
+                        message.resize(msg->GetLength());
+                        
+                        MidiFileEvent e;
+                        parseMsgToEvent(e,msg,false);
+                        events[nt].push_back(e);
+                    }
+                }
+            }
+        }else{
+            cout<<"Failed to load"<<endl;
+        }
+        
+    
+    }
+
     void print(){
         if(loadedOk){
             int num_tracks = tracks->GetNumTracksWithEvents();
@@ -467,10 +542,14 @@ class ofxMidiFilePlayer:public ofThread{
                     }
                 }
             }
+        }else{
+            cout<<"Failed to load"<<endl;
         }
         
     
     }
+    
+    
     
     bool isLoaded(){
         return loadedOk;
@@ -520,28 +599,8 @@ class ofxMidiFilePlayer:public ofThread{
     }
     
     
-    void clear(){
-        if(tracks){
-            delete tracks;
-            tracks = 0;
-        }
-        
-        if(sequencer){
-            delete sequencer;
-            sequencer = 0;
-        }
-        
-        if(trackLoader){
-            delete trackLoader;
-            trackLoader = 0;
-        }
-        if(trackReader){
-            delete trackReader;
-            trackReader = 0;
-        }
 
-
-    }
+    vector<vector <MidiFileEvent> >events;
 };
 
 
@@ -551,21 +610,23 @@ class ofxMidiFile{
     
     ofxMidiFile(){
         setTrackNum(4);
-        setClicksPerBeat(480);//480 logic default
+        setClicksPerBeat(384);//ableton default
         setTempo(120);
         setTimeSignature(4,4);
         setTitle("openFrameworks to midi");
+    
         
     };
     ~ofxMidiFile(){
-        tracks.Clear();
+        _player.tracks->Clear();
+        _player.stopThread();
     };
     
     void addNoteOn(int note,int velocity,int time, int track=1,int channel = 0){
         t = time;
         m.SetTime(t);
         m.SetNoteOn(channel, note, velocity );
-        tracks.GetTrack( track )->PutEvent( m );
+        _player.tracks->GetTrack( track )->PutEvent( m );
     
     };
     
@@ -573,7 +634,7 @@ class ofxMidiFile{
         t = time;
         m.SetTime(t);
         m.SetNoteOff(channel, note, velocity );
-        tracks.GetTrack( track )->PutEvent( m );
+        _player.tracks->GetTrack( track )->PutEvent( m );
     
     };
     
@@ -614,13 +675,13 @@ class ofxMidiFile{
             m.SetTimeSig(numerator, 3 );
         }
     
-        tracks.GetTrack( trk )->PutEvent( m );
+        _player.tracks->GetTrack( trk )->PutEvent( m );
         
         
     };
     void setTitle(string str){
         t = 0;
-        tracks.GetTrack( 0 )->PutTextEvent(t, META_TRACK_NAME, str.c_str());
+        _player.tracks->GetTrack( 0 )->PutTextEvent(t, META_TRACK_NAME, str.c_str());
     };
     
     
@@ -628,23 +689,25 @@ class ofxMidiFile{
     void save(string str){
         
         ofFile file(str);
-        
-        const char *outfile_name = file.getAbsolutePath().c_str();
+        //this became an issue on 64bit where c_str returns garbage
+        //http://stackoverflow.com/questions/23464504/string-and-const-char-and-c-str
+        string saveScope = file.getAbsolutePath();
+        const char *outfile_name = saveScope.c_str();
         MIDIFileWriteStreamFileName out_stream( outfile_name );
 
 
         if( out_stream.IsValid() ){
             // the object which takes the midi tracks and writes the midifile to the output stream
-            MIDIFileWriteMultiTrack writer( &tracks, &out_stream );
+            MIDIFileWriteMultiTrack writer( _player.tracks, &out_stream );
 
             // write the output file
-            if ( writer.Write( tracks.GetNumTracks() ) ){
-                cout << "\nOK writing file " << outfile_name << endl;
+            if ( writer.Write( _player.tracks->GetNumTracks() ) ){
+                cout << "\nOK writing file " << file.getAbsolutePath()<< endl;
             }else{
-                cerr << "\nError writing file " << outfile_name << endl;
+                cerr << "\nError writing file " << file.getAbsolutePath() << endl;
             }
         }   else{
-            cerr << "\nError opening file " << outfile_name << endl;
+            cerr << "\nError opening file " << file.getAbsolutePath() << endl;
         }
 
 
@@ -661,22 +724,22 @@ class ofxMidiFile{
         //240bpm > 4 beats per second > 400 ticks per second > 2.5 msecs per tick > tempo   250 000
         
         
-        _tempo = 1000000/(bpm / 60*tracks.GetClksPerBeat()) * tracks.GetClksPerBeat();
+        _tempo = 1000000/(bpm / 60*_player.tracks->GetClksPerBeat()) * _player.tracks->GetClksPerBeat();
         
         
         
         m.SetTime(time);
         m.SetTempo( _tempo );
-        tracks.GetTrack( 0 )->PutEvent( m );
+        _player.tracks->GetTrack( 0 )->PutEvent( m );
     
     };
     
-        //use to convert ms from beginning of song, to MIDIClockTime ticks assuming bpm has been constant
-        MIDIClockTime msToMidiClockTicks(float ms){
+    //use to convert ms from beginning of song, to MIDIClockTime ticks assuming bpm has been constant
+    MIDIClockTime msToMidiClockTicks(float ms){
         //eg.  MIDIClockTime dt = 100; // time interval (1 second)
-        float msPerTick = (_tempo/1000.0f)/(float)tracks.GetClksPerBeat();
+        float msPerTick = (_tempo/1000.0f)/(float)_player.tracks->GetClksPerBeat();
         
-       // cout<<"_tempo "<<_tempo<<" tracks.GetClksPerBeat() "<<tracks.GetClksPerBeat()<<" msPerTick "<<msPerTick<<endl;
+        // cout<<"_tempo "<<_tempo<<" tracks.GetClksPerBeat() "<<tracks.GetClksPerBeat()<<" msPerTick "<<msPerTick<<endl;
         MIDIClockTime tickNum = ms /msPerTick;
         return tickNum;
     }
@@ -686,24 +749,28 @@ class ofxMidiFile{
     }
     void setTrackNum(int n){
         //careful, as it clears out
-        tracks.ClearAndResize(n);
+        _player.tracks->ClearAndResize(n);
         
     };
     
     void setClicksPerBeat(int c){
     // number of ticks in crotchet (1...32767)
-        tracks.SetClksPerBeat(c);
+        _player.tracks->SetClksPerBeat(c);
+    }
+    
+    int getClicksPerBeat(){
+        return _player.tracks->GetClksPerBeat();
     }
     
     void setTrackName(int n,string str){
         // META_TRACK_NAME text in tracks >= 1 Sibelius uses as instrument name (left of staves)
-        tracks.GetTrack( n )->PutTextEvent(t, META_TRACK_NAME, str.c_str());
+        _player.tracks->GetTrack( n )->PutTextEvent(t, META_TRACK_NAME, str.c_str());
     }
     
     
     void clear(){
         stop();
-        tracks.Clear();
+        _player.tracks->Clear();
         _player.loadedOk = false;
     }
     
@@ -773,11 +840,15 @@ class ofxMidiFile{
     }
     
     
+    vector<vector <MidiFileEvent> > getEvents(){
+        return _player.events;
+    };
+    
     
     protected:
         MIDITimedBigMessage m;
         MIDIClockTime t; // time in midi ticks
-        MIDIMultiTrack tracks;
+        //MIDIMultiTrack tracks;
     
         int _tempo;
 

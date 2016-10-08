@@ -78,7 +78,7 @@ bool MIDIFileWriteMultiTrack::Write ( int num_tracks, int division )
                 continue;
 
             ev_time = ev->GetTime();
-
+            
             // ignore all msgs after EndOfTrack
             if ( ev->IsDataEnd() )
               break;
