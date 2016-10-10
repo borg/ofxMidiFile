@@ -59,44 +59,46 @@ bool MIDIFileWriteMultiTrack::Write ( int num_tracks, int division )
     {
         const MIDITrack *t = multitrack->GetTrack ( i );
 
-        if ( !t || !t->EventsOrderOK() ) // time of events out of order: t->SortEventsOrder() must be done externally
+        if ( !t || !t->EventsOrderOK() ) {// time of events out of order: t->SortEventsOrder() must be done externally
+            std::cerr<<"Midi out error: Event times out of order"<<std::endl;
             return false;
-
+        }
         writer.WriteTrackHeader ( 0 ); // will be rewritten later
 
         const MIDITimedBigMessage *ev;
         MIDIClockTime ev_time = 0;
-
+   
         for ( int event_num = 0; event_num < t->GetNumEvents(); ++event_num )
         {
             ev = t->GetEventAddress ( event_num );
-            if ( !ev )
+            if ( !ev ){
                 return false;
-
+            }
             // don't write to midifile NoOp msgs
             if ( ev->IsNoOp() )
                 continue;
 
             ev_time = ev->GetTime();
-            
-            // ignore all msgs after EndOfTrack
-            if ( ev->IsDataEnd() )
-              break;
 
+            // ignore all msgs after EndOfTrack
+            if ( ev->IsDataEnd() ){
+              break;
+            }
             // write all other msgs
             writer.WriteEvent ( *ev );
 
-            if ( writer.ErrorOccurred() )
+            if ( writer.ErrorOccurred() ){
                 return false;
+            }
         }
 
         writer.WriteEndOfTrack ( ev_time );
         writer.RewriteTrackLength();
     }
 
-    if ( !PostWrite() )
+    if ( !PostWrite() ){
         return false;
-
+    }
     return true;
 }
 

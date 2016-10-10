@@ -623,26 +623,25 @@ class ofxMidiFile{
     };
     
     void addNoteOn(int note,int velocity,int time, int track=1,int channel = 0){
-        t = time;
-        m.SetTime(t);
+        MIDITimedBigMessage m;
+        m.SetTime(time);
         m.SetNoteOn(channel, note, velocity );
         _player.tracks->GetTrack( track )->PutEvent( m );
     
     };
     
     void addNoteOff(int note,int velocity,int time, int track=1,int channel = 0){
-        t = time;
-        m.SetTime(t);
+        MIDITimedBigMessage m;
+        m.SetTime(time);
         m.SetNoteOff(channel, note, velocity );
         _player.tracks->GetTrack( track )->PutEvent( m );
     
     };
     
     
-    void setTimeSignature(int numerator, int denominator = 4){
-    
-        t = 0;
-        m.SetTime( t );
+    void setTimeSignature(int numerator, int denominator = 4, int time = 0){
+        MIDITimedBigMessage m;
+        m.SetTime(time);
 
         // track 0 is used for tempo and time signature info, and some other stuff
 
@@ -680,7 +679,6 @@ class ofxMidiFile{
         
     };
     void setTitle(string str){
-        t = 0;
         _player.tracks->GetTrack( 0 )->PutTextEvent(t, META_TRACK_NAME, str.c_str());
     };
     
@@ -697,6 +695,13 @@ class ofxMidiFile{
 
 
         if( out_stream.IsValid() ){
+        
+            for(int i = 0;i< _player.tracks->GetNumTracks();i++){
+                MIDITrack *t =_player.tracks->GetTrack ( i );
+                t->SortEventsOrder();
+            }
+     
+        
             // the object which takes the midi tracks and writes the midifile to the output stream
             MIDIFileWriteMultiTrack writer( _player.tracks, &out_stream );
 
@@ -727,7 +732,7 @@ class ofxMidiFile{
         _tempo = 1000000/(bpm / 60*_player.tracks->GetClksPerBeat()) * _player.tracks->GetClksPerBeat();
         
         
-        
+        MIDITimedBigMessage m;
         m.SetTime(time);
         m.SetTempo( _tempo );
         _player.tracks->GetTrack( 0 )->PutEvent( m );
@@ -846,7 +851,7 @@ class ofxMidiFile{
     
     
     protected:
-        MIDITimedBigMessage m;
+        //MIDITimedBigMessage m;
         MIDIClockTime t; // time in midi ticks
         //MIDIMultiTrack tracks;
     
