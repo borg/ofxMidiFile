@@ -16,3 +16,4 @@ ofEvent<MidiFileEvent>	MidiFileEvent::STOP;
 ofEvent<MidiFileEvent>	MidiFileEvent::BEAT;
 ofEvent<MidiFileEvent>	MidiFileEvent::MTC;
 ofEvent<MidiFileEvent>	MidiFileEvent::NOTES_ALL_OFF;
+ofEvent<MidiFileEvent>	MidiFileEvent::TIME_SIGNATURE;

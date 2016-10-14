@@ -60,6 +60,14 @@ Each bar in 4/4 is 384 clicks
 
 using namespace jdksmidi;
 
+typedef enum MIDIEVENT_TYPE{
+    MIDIEVENT_NOTE_ON,
+    MIDIEVENT_NOTE_OFF,
+    MIDIEVENT_NOTES_ALL_OFF,
+    MIDIEVENT_BEAT,
+    MIDIEVENT_TIME_SIGNATURE
+}MIDIEVENT_TYPE;
+
 class MidiFileEvent : public ofEventArgs{
     
 public:
@@ -71,7 +79,9 @@ public:
         channel = 0;
         beat = 0;
         time = 0;
-        type = "NOTE_ON";
+        numerator = 4;
+        denominator = 4;
+        type = MIDIEVENT_NOTE_ON;
         trackId = "";//use to separate tracks
     }
     
@@ -81,8 +91,10 @@ public:
     int note=0;
     int velocity=100;
     int channel=1;
+    int numerator = 4;
+    int denominator = 4;
     string trackId="";
-    string type="";//specify NOTE_ON, NOTE_OFF etc
+    MIDIEVENT_TYPE type = MIDIEVENT_NOTE_ON;//specify NOTE_ON, NOTE_OFF etc..this is only supposed to be used for parsing
     
     static ofEvent<MidiFileEvent>	NOTE_ON;
     static ofEvent<MidiFileEvent>	NOTE_OFF;
@@ -91,6 +103,7 @@ public:
     static ofEvent<MidiFileEvent>	BEAT;
     static ofEvent<MidiFileEvent>	MTC;
     static ofEvent<MidiFileEvent>	NOTES_ALL_OFF;
+    static ofEvent<MidiFileEvent>	TIME_SIGNATURE;
 };
 
 
@@ -295,13 +308,13 @@ class ofxMidiFilePlayer:public ofThread{
         e.trackId = getTrackId();
         
         if ( msg->IsBeatMarker() ){
-            e.type = "BEAT";
+            e.type = MIDIEVENT_BEAT;
             if(doNotify){
                 ofNotifyEvent(MidiFileEvent::BEAT, e);
             }
             //ofLog(OF_LOG_VERBOSE, "%8ld : %s <------------------>", msg->GetTime(), msg->MsgToText ( msgbuf ) );
         }else if(msg->IsNoteOn()){
-            e.type = "NOTE_ON";
+            e.type = MIDIEVENT_NOTE_ON;
             e.note = msg->GetNote();
             e.velocity = msg->GetVelocity();
             e.channel = msg->GetChannel();
@@ -310,7 +323,7 @@ class ofxMidiFilePlayer:public ofThread{
             }
             ofLog(OF_LOG_VERBOSE, "%f : %s", msg->GetTime()/(float)tracks->GetClksPerBeat(), msg->MsgToText ( msgbuf ) );
         }else if(msg->IsNoteOff()){
-            e.type = "NOTE_OFF";
+            e.type = MIDIEVENT_NOTE_OFF;
             e.note = msg->GetNote();
             e.velocity = msg->GetVelocity();
             e.channel = msg->GetChannel();
@@ -320,14 +333,27 @@ class ofxMidiFilePlayer:public ofThread{
             
             ofLog(OF_LOG_VERBOSE, "%f : %s", msg->GetTime()/(float)tracks->GetClksPerBeat(), msg->MsgToText ( msgbuf ) );
         }else if(msg->IsAllNotesOff()){
-            e.type = "NOTES_ALL_OFF";
+            e.type = MIDIEVENT_NOTES_ALL_OFF;
             e.channel = msg->GetChannel();
             if(doNotify){
                 ofNotifyEvent(MidiFileEvent::NOTES_ALL_OFF, e);
             }
             
             ofLog(OF_LOG_VERBOSE, "%f : %s", msg->GetTime()/(float)tracks->GetClksPerBeat(), msg->MsgToText ( msgbuf ) );
+        }else if(msg->IsTimeSig()){
+            e.type = MIDIEVENT_TIME_SIGNATURE;
+            e.channel = msg->GetChannel();
+            e.numerator = msg->GetTimeSigNumerator();
+            e.denominator = msg->GetTimeSigDenominator();
+            if(doNotify){
+                ofNotifyEvent(MidiFileEvent::TIME_SIGNATURE, e);
+            }
+            
+            ofLog(OF_LOG_VERBOSE, "TIME_SIGNATURE %f : %i/%i", msg->GetTime()/(float)tracks->GetClksPerBeat(), msg->GetTimeSigNumerator(),msg->GetTimeSigDenominator());
         }
+        
+        
+        
         
         if ( msg->IsSystemExclusive() ){
             ofLog(OF_LOG_VERBOSE, "SYSEX length: %d", msg->GetSysEx()->GetLengthSE() );
@@ -614,13 +640,29 @@ class ofxMidiFile{
         setTempo(120);
         setTimeSignature(4,4);
         setTitle("openFrameworks to midi");
-    
-        
     };
     ~ofxMidiFile(){
         _player.tracks->Clear();
         _player.stopThread();
     };
+    
+    
+    
+    //TODO: Test if this is correct
+    //without it clang kicked up this
+    //https://github.com/openframeworks/openFrameworks/issues/3974
+    ofxMidiFile(const ofxMidiFile &midi){
+        ofxMidiFile m;
+        m._player.events = midi._player.events;
+        
+        //m.setTrackNum(midi.getTrackNum());
+        m.setClicksPerBeat(384);//ableton default
+        m.setTempo(120);
+        m.setTimeSignature(4,4);
+        m.setTitle("openFrameworks to midi");
+        
+        return m;
+    }
     
     void addNoteOn(int note,int velocity,int time, int track=1,int channel = 0){
         MIDITimedBigMessage m;
@@ -739,6 +781,7 @@ class ofxMidiFile{
     
     };
     
+    
     //use to convert ms from beginning of song, to MIDIClockTime ticks assuming bpm has been constant
     MIDIClockTime msToMidiClockTicks(float ms){
         //eg.  MIDIClockTime dt = 100; // time interval (1 second)
@@ -757,6 +800,10 @@ class ofxMidiFile{
         _player.tracks->ClearAndResize(n);
         
     };
+    
+    int getTrackNum(){
+        return _player.tracks->GetNumTracks();
+    }
     
     void setClicksPerBeat(int c){
     // number of ticks in crotchet (1...32767)
